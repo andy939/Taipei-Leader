@@ -2,9 +2,9 @@ name: Taipei Leader Monitor Auto Run
 
 on:
   schedule:
-    # 每個小時的第 0 分鐘執行一次
+    # 每個小時的第 0 分鐘執行一次 (台灣時間每小時整點)
     - cron: '0 * * * *'
-  workflow_dispatch: # 讓您可以手動點按鈕測試執行
+  workflow_dispatch: # 保留手動執行按鈕
 
 jobs:
   build:
@@ -34,14 +34,16 @@ jobs:
       run: |
         git config --global user.name "GitHub Action Bot"
         git config --global user.email "actions@github.com"
-        # 先拉取雲端最新的變更(如排程設定更新)，避免 push 被拒絕
+        
+        # 先拉取最新變更，避免與網頁上的修改衝突
         git pull --rebase origin main
-        # 檢查檔案是否存在，存在才加入
-        if [ -f city_leaders_complete.xlsx ]; then
+        
+        # 檢查 Excel 檔案是否有產生或變動
+        if [ -n "$(git status --porcelain city_leaders_complete.xlsx)" ]; then
           git add city_leaders_complete.xlsx
-          # 只有在有檔案變動時才 commit，避免報錯
-          git commit -m "Auto update: $(date +'%Y-%m-%d %H:%M:%S')" || echo "No changes to commit"
+          git commit -m "Auto update: $(date +'%Y-%m-%d %H:%M:%S')"
           git push origin main
+          echo "✅ 偵測到資料更新，已存回 GitHub。"
         else
-          echo "Excel file not found, skipping commit."
+          echo "ℹ️ 資料無變動，跳過存檔步驟。"
         fi
