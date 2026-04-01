@@ -1,0 +1,39 @@
+name: Taipei Leader Monitor Auto Run
+
+on:
+  schedule:
+    # 每天台灣時間早上 9:00 執行一次 (UTC 1:00)
+    - cron: '0 1 * * *'
+  workflow_dispatch: # 讓您可以手動點按鈕測試執行
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run Monitor Script
+      env:
+        SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+        SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
+      run: python main.py
+
+    - name: Commit and Push changes
+      run: |
+        git config --global user.name "GitHub Action Bot"
+        git config --global user.email "actions@github.com"
+        git add city_leaders_complete.xlsx
+        git commit -m "Auto update: $(date +'%Y-%m-%d %H:%M:%S')" || exit 0
+        git push
