@@ -2,22 +2,17 @@ name: Taipei Leader Monitor Auto Run
 
 on:
   schedule:
-    - cron: '0 * * * *' # 每小時執行
-  workflow_dispatch:     # 手動執行按鈕
+    # 每天台灣時間早上 9:00 執行一次 (UTC 1:00)
+    - cron: '0 1 * * *'
+  workflow_dispatch: # 讓您可以手動點按鈕測試執行
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    # 給予明確的寫入權限
-    permissions:
-      contents: write
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
-      with:
-        # 抓取所有歷史，避免同步失敗
-        fetch-depth: 0
 
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -27,7 +22,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install requests beautifulsoup4 pandas openpyxl
+        pip install -r requirements.txt
 
     - name: Run Monitor Script
       env:
@@ -39,15 +34,6 @@ jobs:
       run: |
         git config --global user.name "GitHub Action Bot"
         git config --global user.email "actions@github.com"
-        
-        # 強制與雲端同步
-        git pull origin main --rebase
-        
-        # 檢查是否有檔案要存
-        if [ -n "$(git status --porcelain)" ]; then
-          git add .
-          git commit -m "Auto update: $(date +'%Y-%m-%d %H:%M:%S')"
-          git push origin main
-        else
-          echo "No changes to commit"
-        fi
+        git add city_leaders_complete.xlsx
+        git commit -m "Auto update: $(date +'%Y-%m-%d %H:%M:%S')" || exit 0
+        git push
