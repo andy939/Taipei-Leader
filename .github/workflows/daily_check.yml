@@ -31,12 +31,13 @@ jobs:
         SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
       run: python main.py
 
-    - name: Commit and Push changes
-      run: |
+    -  name: Commit and Push changes
+       run: |
         git config --global user.name "GitHub Action Bot"
         git config --global user.email "actions@github.com"
-        # 先拉取雲端最新的變更，避免衝突
+        # 關鍵：先同步雲端變更
         git pull --rebase origin main
         git add city_leaders_complete.xlsx
-        git commit -m "Auto update: $(date +'%Y-%m-%d %H:%M:%S')" || exit 0
-        git push
+        # 只有在有變動時才 commit，避免報錯
+        git commit -m "Auto update: $(date +'%Y-%m-%d %H:%M:%S')" || echo "No changes to commit"
+        git push origin main
