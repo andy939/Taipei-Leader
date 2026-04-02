@@ -30,15 +30,17 @@ def send_email_notification(added, removed, old_time, now_time):
         
         if added:
             sorted_added = sorted(list(added), key=lambda x: x[1])
-            body += f"【🆕 變動後人員 (資料時間: {now_time})】\n"
-            for name, dept in sorted_added: body += f"  ＋ {name} ( {dept} )\n"
+            body += "【🆕 變動後人員】\n"
+            for name, dept in sorted_added:
+                body += f"  ＋ {name} ( {dept} )\n"
         
         if removed:
             sorted_removed = sorted(list(removed), key=lambda x: x[1])
-            body += f"\n【❌ 變動前人員 (資料時間: {old_time})】\n"
-            for name, dept in sorted_removed: body += f"  － {name} ( {dept} )\n"
+            body += "\n【❌ 變動前人員】\n"
+            for name, dept in sorted_removed:
+                body += f"  － {name} ( {dept} )\n"
 
-        body += f"\n\n此郵件為系統自動發送，請勿直接回覆。"
+        body += "\n\n此郵件為系統自動發送，請勿直接回覆。"
 
         msg = MIMEText(body, 'plain', 'utf-8')
         msg['From'] = SENDER_EMAIL
@@ -69,24 +71,28 @@ def run_monitor():
         soup = BeautifulSoup(resp.text, 'html.parser')
         
         items = soup.select(".list_class li")
-        if not items: items = soup.find_all(["a", "li"], class_=lambda x: x != 'main-nav')
+        if not items:
+            items = soup.find_all(["a", "li"], class_=lambda x: x != 'main-nav')
 
         for item in items:
             raw_text = item.get_text(" ", strip=True)
             clean_text = raw_text.replace("收藏網頁", "").replace("My收藏", "").strip()
-            if any(g in clean_text for g in garbage_list): continue
+            if any(g in clean_text for g in garbage_list):
+                continue
 
             keywords = ["局", "處", "會", "公所", "府", "中心", "所", "學院", "大隊", "團", "館", "園", "電臺", "公司", "醫院", "院"]
             if any(k in clean_text for k in keywords):
                 parts = [p.strip() for p in clean_text.split() if len(p.strip()) >= 2]
                 if len(parts) >= 2:
-                    name = re.sub(r'[\(\（].*?[\)\開 \）]', '', parts[0]).strip()
+                    name = re.sub(r'[\(\（].*?[\)\）]', '', parts[0]).strip()
                     dept = ""
                     for p in parts:
                         if any(k in p for k in keywords):
                             if p not in ["院長", "處長", "局長", "中心主任", "組長", "團長", "校長", "主任", "主委"]:
-                                if len(p) > len(dept): dept = p
-                    if not dept: dept = parts[-1]
+                                if len(p) > len(dept):
+                                    dept = p
+                    if not dept:
+                        dept = parts[-1]
 
                     if 2 <= len(name) <= 15 and len(dept) > len(name):
                         if name not in seen_names or len(dept) > len(seen_names[name]):
@@ -95,30 +101,36 @@ def run_monitor():
         print(f"🌐 第 {page} 頁掃描完成...")
         time.sleep(0.5)
 
+    if not all_new_data:
+        print("❌ 錯誤：完全沒抓到資料，請檢查網頁結構或網路。")
+        return
+
     new_df = pd.DataFrame(all_new_data).drop_duplicates()
     now_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
     # 比對邏輯
     if os.path.exists(MASTER_FILE):
-        old_df = pd.read_excel(MASTER_FILE)
-        # 取得檔案最後修改時間作為基準點
-        old_time = datetime.fromtimestamp(os.path.getmtime(MASTER_FILE)).strftime('%Y-%m-%d %H:%M:%S')
-        
-        old_set = set(zip(old_df['首長姓名'], old_df['機關']))
-        new_set = set(zip(new_df['首長姓名'], new_df['機關']))
-        
-        added = new_set - old_set
-        removed = old_set - new_set
+        try:
+            old_df = pd.read_excel(MASTER_FILE)
+            old_time = datetime.fromtimestamp(os.path.getmtime(MASTER_FILE)).strftime('%Y-%m-%d %H:%M:%S')
+            
+            old_set = set(zip(old_df['首長姓名'], old_df['機關']))
+            new_set = set(zip(new_df['首長姓名'], new_df['機關']))
+            
+            added = new_set - old_set
+            removed = old_set - new_set
 
-        if added or removed:
-            print(f"🚨 偵測到異動！寄送 Email 中...")
-            send_email_notification(added, removed, old_time, now_time)
-        else:
-            print("✅ 資料一致，無須寄信。")
+            if added or removed:
+                print(f"🚨 偵測到異動！")
+                send_email_notification(added, removed, old_time, now_time)
+            else:
+                print("✅ 資料一致，無須寄信。")
+        except Exception as e:
+            print(f"⚠️ 讀取舊檔失敗，將視為首次執行: {e}")
     else:
         print("ℹ️ 首次執行，建立初始 Excel。")
 
-    # 存檔 (強製使用 openpyxl)
+    # 存檔 (強制使用 openpyxl)
     new_df.to_excel(MASTER_FILE, index=False, engine='openpyxl')
     print(f"📊 任務完成。總筆數：{len(new_df)}，檔案大小：{os.path.getsize(MASTER_FILE)} bytes")
 
