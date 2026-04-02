@@ -2,13 +2,12 @@ name: Taipei Leader Monitor Auto Run
 
 on:
   schedule:
-    - cron: '0 * * * *' # 每小時執行一次
-  workflow_dispatch:     # 手動執行按鈕
+    - cron: '0 * * * *' # 每小時整點跑一次
+  workflow_dispatch:     # 讓您可以手動按按鈕
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    # 明確開啟寫入權限，解決 403 錯誤
     permissions:
       contents: write
 
@@ -16,14 +15,14 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
       with:
-        fetch-depth: 0 # 抓取完整歷史，避免同步失敗
+        fetch-depth: 0
 
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.9'
 
-    - name: Install dependencies
+    - name: Install dependencies (直接安裝，不看 requirements.txt)
       run: |
         python -m pip install --upgrade pip
         pip install requests beautifulsoup4 pandas openpyxl
@@ -38,16 +37,12 @@ jobs:
       run: |
         git config --global user.name "GitHub Action Bot"
         git config --global user.email "actions@github.com"
-        
-        # 關鍵：先把雲端最新的修改領回來，確保版本一致
         git pull origin main --rebase
         
-        # 檢查 Excel 是否有產出
         if [ -f city_leaders_complete.xlsx ]; then
           git add city_leaders_complete.xlsx
-          # 只有在有變動時才存檔，沒變動就顯示 OK 結束
-          git commit -m "Auto update: $(date +'%Y-%m-%d %H:%M:%S')" || echo "No changes to commit"
+          git commit -m "Auto update: $(date +'%Y-%m-%d %H:%M:%S')" || echo "No changes"
           git push origin main
         else
-          echo "Excel file not found, skip."
+          echo "File not found, skip."
         fi
