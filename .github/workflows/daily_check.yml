@@ -2,8 +2,8 @@ name: Taipei Leader Monitor Auto Run
 
 on:
   schedule:
-    - cron: '0 * * * *' # 每小時整點跑一次
-  workflow_dispatch:     # 讓您可以手動按按鈕
+    - cron: '0 * * * *'
+  workflow_dispatch:
 
 jobs:
   build:
@@ -14,15 +14,13 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
-      with:
-        fetch-depth: 0
 
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.9'
 
-    - name: Install dependencies (直接安裝，不看 requirements.txt)
+    - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install requests beautifulsoup4 pandas openpyxl
@@ -33,16 +31,21 @@ jobs:
         SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
       run: python main.py
 
-    - name: Commit and Push changes
+    - name: Commit and Push (暴力存檔版)
       run: |
         git config --global user.name "GitHub Action Bot"
         git config --global user.email "actions@github.com"
-        git pull origin main --rebase
         
-        if [ -f city_leaders_complete.xlsx ]; then
-          git add city_leaders_complete.xlsx
-          git commit -m "Auto update: $(date +'%Y-%m-%d %H:%M:%S')" || echo "No changes"
-          git push origin main
+        # 1. 強制把產出的檔案加進來
+        git add city_leaders_complete.xlsx --force
+        
+        # 2. 只有在檔案真的有內容時才繼續
+        if [ -s city_leaders_complete.xlsx ]; then
+          git commit -m "Manual Fix: $(date +'%Y-%m-%d %H:%M:%S')"
+          
+          # 3. 關鍵：不管雲端長怎樣，強行覆蓋上去
+          git push origin main --force
+          echo "✅ 檔案已強行推送到 Code 頁面！"
         else
-          echo "File not found, skip."
+          echo "❌ 檔案竟然又是 0 元素，請檢查 main.py 是否有抓到資料。"
         fi
