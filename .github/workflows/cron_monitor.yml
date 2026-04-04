@@ -1,0 +1,42 @@
+name: Taipei Leader Monitor Cron
+
+on:
+  schedule:
+    # 💡 每小時的第 0 分鐘自動執行 (UTC 時間)
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    # 💡 允許手動點擊 "Run workflow" 測試
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          # 💡 這裡已經加入 schedule，解決 ModuleNotFoundError 問題
+          pip install requests beautifulsoup4 pandas openpyxl schedule
+
+      - name: Run Monitor Task
+        env:
+          # 💡 這裡對接您在 GitHub Settings 設定的 Secrets (請維持變數形式)
+          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+          SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
+        run: python main.py
+
+      - name: Commit and Push changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          # 💡 將產生的 Excel 檔案存回 GitHub 倉庫，保留歷史紀錄
+          git add city_leaders_complete.xlsx history_records/
+          git commit -m "自動更新：異動紀錄 [$(date '+%Y-%m-%d %H:%M')]" || echo "無資料異動需存檔"
+          git push
