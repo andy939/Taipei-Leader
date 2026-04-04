@@ -12,7 +12,10 @@ import smtplib
 import schedule 
 from email.mime.text import MIMEText
 from email.header import Header
-
+# 💡 加入這行，強制讓 Python 腳本內的檔名生成使用台灣時區
+os.environ['TZ'] = 'Asia/Taipei'
+if hasattr(time, 'tzset'):
+    time.tzset()
 # --- 基礎配置 (針對 GitHub Actions 修正) ---
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
