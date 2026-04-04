@@ -1,51 +1,41 @@
-name: Taipei Leader Monitor Auto Run
+name: Taipei Leader Monitor Cron
 
 on:
   schedule:
+    # 💡 設定每小時執行一次 (UTC 時間，0 * * * * 代表每小時的第 0 分鐘)
     - cron: '0 * * * *'
   workflow_dispatch:
+    # 💡 允許您在 GitHub 網頁上手動點擊 "Run workflow" 立即測試執行
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.9'
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install requests beautifulsoup4 pandas openpyxl
+      - name: Install dependencies
+        run: |
+          pip install requests beautifulsoup4 pandas openpyxl
 
-    - name: Run Monitor Script
-      env:
-        SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
-        SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
-      run: python main.py
+      - name: Run Monitor Task
+        env:
+          # 💡 這裡會對接到您在 GitHub Settings 設定的 Secrets
+         SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+         SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
+        run: python main.py
 
-    - name: Commit and Push (暴力存檔版)
-      run: |
-        git config --global user.name "GitHub Action Bot"
-        git config --global user.email "actions@github.com"
-        
-        # 1. 強制把產出的檔案加進來
-        git add city_leaders_complete.xlsx --force
-        
-        # 2. 只有在檔案真的有內容時才繼續
-        if [ -s city_leaders_complete.xlsx ]; then
-          git commit -m "Manual Fix: $(date +'%Y-%m-%d %H:%M:%S')"
-          
-          # 3. 關鍵：不管雲端長怎樣，強行覆蓋上去
-          git push origin main --force
-          echo "✅ 檔案已強行推送到 Code 頁面！"
-        else
-          echo "❌ 檔案竟然又是 0 元素，請檢查 main.py 是否有抓到資料。"
-        fi
+      - name: Commit and Push changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          # 💡 將產生的 Excel 檔案存回 GitHub 倉庫
+          git add city_leaders_complete.xlsx history_records/
+          git commit -m "自動更新：首長異動紀錄庫 [$(date '+%Y-%m-%d %H:%M')]" || echo "今日無異動資料需存檔"
+          git push
