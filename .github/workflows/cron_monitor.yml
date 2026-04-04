@@ -35,18 +35,24 @@ jobs:
         env:
           TZ: Asia/Taipei
         run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+         git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
-          # 💡 1. 確保資料夾存在（避免你手動刪除後 add 失敗）
+          # 💡 1. 強制從網頁拉取最新狀態，但不進行合併 (避免衝突)
+          git fetch origin main
+          git checkout main
+          
+          # 💡 2. 確保資料夾存在
           mkdir -p history_records
           
-          # 💡 2. 先把新檔案加進去
+          # 💡 3. 把新產生的檔案蓋過去
           git add city_leaders_complete.xlsx history_records/
           
-          # 💡 3. 先 Commit 到本地雲端
+          # 💡 4. Commit 檔案
           git commit -m "自動更新：異動紀錄 [$(date '+%Y-%m-%d %H:%M')]" || echo "無資料異動需存檔"
           
+          # 💡 5. 強力推回網頁端，解決 [rejected] 錯誤
+          git push origin main --force
           # 💡 4. 關鍵：先拉取最新狀態並強制合併，解決 rejected 錯誤
           git pull --rebase origin main
           
