@@ -40,11 +40,21 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
-          # 💡 先拉取遠端的變動，避免 [rejected] 錯誤
+          # 💡 1. 先把產生的 Excel 檔案加進暫存區
+          git add city_leaders_complete.xlsx history_records/
+          
+          # 💡 2. 暫時把變動「藏起來 (stash)」，這樣才能 pull
+          git stash
+          
+          # 💡 3. 拉取遠端最新的狀態（解決 rejected 問題）
           git pull --rebase origin main
           
+          # 💡 4. 把剛才藏起來的 Excel 拿回來
+          git stash pop || echo "無變動需恢復"
+          
+          # 💡 5. 重新 add 並 commit
           git add city_leaders_complete.xlsx history_records/
           git commit -m "自動更新：異動紀錄 [$(date '+%Y-%m-%d %H:%M')]" || echo "無資料異動需存檔"
           
-          # 💡 使用 --force 確保一定能推上去
+          # 💡 6. 強力推上去
           git push origin main --force
