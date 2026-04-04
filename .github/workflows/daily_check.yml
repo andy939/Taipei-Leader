@@ -22,7 +22,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests beautifulsoup4 pandas openpyxl
+          pip install requests beautifulsoup4 pandas openpyxl schedule
 
       - name: Run Monitor Task
         env:
