@@ -2,10 +2,8 @@ name: Taipei Leader Monitor Cron
 
 on:
   schedule:
-    # 💡 每小時的第 0 分鐘自動執行 (UTC 時間)
     - cron: '0 * * * *'
   workflow_dispatch:
-    # 💡 允許手動點擊 "Run workflow" 測試
 
 jobs:
   build:
@@ -14,6 +12,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+        with:
+          # 💡 確保拉取所有歷史紀錄，避免 push 被拒絕
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -22,39 +23,32 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # 💡 這裡已經加入 schedule，解決 ModuleNotFoundError 問題
           pip install requests beautifulsoup4 pandas openpyxl schedule
 
       - name: Run Monitor Task
         env:
-          # 💡 這裡對接您在 GitHub Settings 設定的 Secrets (請維持變數形式)
           SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
           SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
         run: python main.py
 
       - name: Commit and Push changes
         env:
-          # 💡 強制設定這一個步驟使用台灣時區
           TZ: Asia/Taipei
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
-          # 💡 1. 先把產生的 Excel 檔案加進暫存區
+          # 💡 1. 確保資料夾存在（避免你手動刪除後 add 失敗）
+          mkdir -p history_records
+          
+          # 💡 2. 先把新檔案加進去
           git add city_leaders_complete.xlsx history_records/
           
-          # 💡 2. 暫時把變動「藏起來 (stash)」，這樣才能 pull
-          git stash
-          
-          # 💡 3. 拉取遠端最新的狀態（解決 rejected 問題）
-          git pull --rebase origin main
-          
-          # 💡 4. 把剛才藏起來的 Excel 拿回來
-          git stash pop || echo "無變動需恢復"
-          
-          # 💡 5. 重新 add 並 commit
-          git add city_leaders_complete.xlsx history_records/
+          # 💡 3. 先 Commit 到本地雲端
           git commit -m "自動更新：異動紀錄 [$(date '+%Y-%m-%d %H:%M')]" || echo "無資料異動需存檔"
           
-          # 💡 6. 強力推上去
+          # 💡 4. 關鍵：先拉取最新狀態並強制合併，解決 rejected 錯誤
+          git pull --rebase origin main
+          
+          # 💡 5. 強力推上去，確保首頁 Code 會更新
           git push origin main --force
