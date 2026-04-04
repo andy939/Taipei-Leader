@@ -39,7 +39,12 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          # 💡 將產生的 Excel 檔案存回 GitHub 倉庫，保留歷史紀錄
+          
+          # 💡 先拉取遠端的變動，避免 [rejected] 錯誤
+          git pull --rebase origin main
+          
           git add city_leaders_complete.xlsx history_records/
           git commit -m "自動更新：異動紀錄 [$(date '+%Y-%m-%d %H:%M')]" || echo "無資料異動需存檔"
-          git push
+          
+          # 💡 使用 --force 確保一定能推上去
+          git push origin main --force
