@@ -2,7 +2,7 @@ name: Taipei Leader Monitor Cron
 
 on:
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '*/2 * * * *'
     #從左到右分別代表：'分鐘 小時 日期 月份 星期'
 
 #  0 * * * * #每小時 (整點)
