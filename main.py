@@ -9,7 +9,6 @@ import urllib3
 import re
 import time
 import smtplib
-import schedule 
 from email.mime.text import MIMEText
 from email.header import Header
 
@@ -21,7 +20,7 @@ if hasattr(time, 'tzset'):
 # --- 基礎配置 (針對 GitHub Actions 修正) ---
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
-# 💡 修正 1：改從 GitHub Secrets 讀取，不要寫死在程式碼中
+# 💡 修正：改從 GitHub Secrets 讀取
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL")        
 SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD") 
 RECIPIENT_FILE = "收件者清單.xlsx" 
@@ -31,20 +30,16 @@ BASE_URL = "https://www.gov.taipei/News_Leader.aspx?n=1E25E56D8B12C862&sms=7CAF6
 MASTER_FILE = "city_leaders_complete.xlsx"
 HISTORY_DIR = "history_records"
 
-# 💡 註：在 GitHub Actions 中，SCAN_MODE 等設定將由 GitHub 自己的排程(Cron)決定
-SCAN_MODE = "interval"
-MINUTES_INTERVAL = 60
-DAILY_TIME = "09:00"
-
 if not os.path.exists(HISTORY_DIR):
     os.makedirs(HISTORY_DIR)
 
 class TaipeiLeaderMonitor:
     def __init__(self):
         self.receiver_emails = []
-        self.log("🚀 系統啟動：北市府首長監控站 (GitHub Actions 雲端版)")
+        self.log("🚀 系統啟動：北市府首長監控站 (GitHub Actions 雲端精準版)")
 
     def log(self, msg):
+        # 雲端版直接使用 print，會顯示在 GitHub Actions 的 Log 中
         print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
 
     def load_recipients(self):
@@ -59,7 +54,6 @@ class TaipeiLeaderMonitor:
         except: self.receiver_emails = ["andy939.yang@gmail.com", "bk1883@gov.taipei"]
 
     def send_email_notification(self, added, removed, old_time, now_time):
-        # 💡 安全檢查：確保有讀到 Secrets 密碼
         if not SENDER_EMAIL or not SENDER_PASSWORD:
             self.log("⚠️ 錯誤：GitHub Secrets 未正確設定 EMAIL 或密碼")
             return
@@ -75,6 +69,7 @@ class TaipeiLeaderMonitor:
                 sorted_removed = sorted(list(removed), key=lambda x: x[1])
                 body += "\n【❌ 變動前長官】\n"
                 for name, dept in sorted_removed: body += f"  － {name} ( {dept} )\n"
+            
             msg = MIMEText(body, 'plain', 'utf-8'); msg['From'] = SENDER_EMAIL; msg['To'] = ", ".join(self.receiver_emails); msg['Subject'] = Header(subject, 'utf-8')
             server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT); server.starttls(); server.login(SENDER_EMAIL, SENDER_PASSWORD); server.sendmail(SENDER_EMAIL, self.receiver_emails, msg.as_string()); server.quit()
             self.log(f"📨 異動郵件已寄出。")
@@ -86,15 +81,22 @@ class TaipeiLeaderMonitor:
             garbage_list = ["市民服務", "市政公告", "市政資料", "與民互動", "助您好孕", "組織架構", "市府APP", "如何到達", "市府團隊", "市府新聞", "酒駕防制", "市政會議"]
             keywords = ["局", "處", "會", "公所", "府", "中心", "所", "學院", "大隊", "團", "館", "園", "電臺", "公司", "醫院", "院"]
             self.log(f"--- 掃描開始 ---")
+            
             for page in range(1, 9):
                 page_count = 0
                 resp = requests.get(f"{BASE_URL}&page={page}&PageSize=20", headers=headers, timeout=25, verify=False)
                 resp.encoding = 'utf-8'; soup = BeautifulSoup(resp.text, 'html.parser')
-                items = soup.select(".list_class li") or soup.find_all(["a", "li"], class_=lambda x: x != 'main-nav')
+                
+                # 💡 同步 UI 版修正：抓取 li 與 a，透過零件數隔離
+                items = soup.find_all(["li", "a"]) 
                 for item in items:
                     raw_text = item.get_text(" ", strip=True).replace("收藏網頁", "").replace("My收藏", "").strip()
-                    if any(g in raw_text for g in garbage_list): continue
+                    if not raw_text or any(g in raw_text for g in garbage_list): continue
                     
+                    # 💡 同步 UI 版修正 1：排除大雜燴 (解決吳俊良偏移問題)
+                    parts = [p.strip() for p in raw_text.split() if len(p.strip()) >= 2]
+                    if len(parts) > 10: continue
+
                     if "王玉芬" in raw_text and "秘書處" in raw_text:
                         if not any(d['首長姓名'] == "王玉芬" for d in all_new_data):
                             all_new_data.append({"機關": "秘書處", "職稱": "臺北市政府秘書長兼秘書處處長", "首長姓名": "王玉芬"})
@@ -102,18 +104,30 @@ class TaipeiLeaderMonitor:
                         continue 
                     
                     if any(k in raw_text for k in keywords):
-                        parts = [p.strip() for p in raw_text.split() if len(p.strip()) >= 2]
                         if len(parts) >= 2:
                             name = re.sub(r'[\(\（].*?[\)\）]', '', parts[0]).strip()
                             dept = ""; dept_idx = -1
                             for idx, p in enumerate(parts):
                                 if any(k in p for k in keywords):
-                                    if p not in ["院長", "處長", "局長", "中心主任", "組長", "團長", "校長", "主任", "主委"]:
+                                    if p not in ["局長", "處長", "主任", "大隊長", "廠長", "主委", "區長"]:
                                         if len(p) > len(dept): dept = p; dept_idx = idx
-                            if not dept: dept = parts[-1]; dept_idx = len(parts)-1
-                            title = parts[dept_idx-1] if dept_idx > 1 else ""
+                            
+                            # 💡 同步 UI 版修正 2：職稱回歸正常判定
+                            if dept_idx == 1:
+                                # 吳俊良案例：[吳俊良, 健康中心]
+                                title = "主任" if "中心" in dept else "處長" 
+                            elif dept_idx > 1:
+                                potential_title = parts[dept_idx-1]
+                                # 通用防錯：職稱重複或偏移時修正
+                                if potential_title == name or any(k in potential_title for k in ["局", "處", "中心", "大隊"]):
+                                    title = "主任" if "中心" in dept else "處長"
+                                else:
+                                    title = potential_title
+                            else:
+                                title = "主任"
+
                             if 2 <= len(name) <= 15 and len(dept) > len(name):
-                                if name not in seen_names or len(dept) > len(seen_names[name]):
+                                if name not in seen_names:
                                     seen_names[name] = dept
                                     if not any(d['首長姓名'] == name and d['機關'] == dept for d in all_new_data):
                                         all_new_data.append({"機關": dept, "職稱": title, "首長姓名": name})
@@ -124,7 +138,6 @@ class TaipeiLeaderMonitor:
             files = glob.glob(os.path.join(HISTORY_DIR, "city_leaders_*.xlsx"))
             
             if files:
-                # 💡 這裡做了修正：用檔名排序找到最新的一個
                 old_file = max(files) 
                 old_df = pd.read_excel(old_file)
                 old_set = set(zip(old_df['首長姓名'], old_df['機關']))
@@ -132,20 +145,15 @@ class TaipeiLeaderMonitor:
                 added, removed = new_set - old_set, old_set - new_set
                 
                 if added or removed:
-                    # 💡 重點修正：從檔名提取時間，避免 GitHub Actions 檔案時間不準的問題
+                    # 💡 重點：從檔名提取時間
                     file_name = os.path.basename(old_file)
-                    time_match = re.search(r'(\d{8})_(\d{4})', file_name)
-                    if time_match:
-                        d, t = time_match.groups()
-                        ot = f"{d[:4]}-{d[4:6]}-{d[6:8]} {t[:2]}:{t[2:]}:00"
-                    else:
-                        ot = datetime.fromtimestamp(os.path.getmtime(old_file)).strftime('%Y-%m-%d %H:%M:%S')
-                    
+                    tm = re.search(r'(\d{8})_(\d{4})', file_name)
+                    ot = f"{tm.group(1)[:4]}-{tm.group(1)[4:6]}-{tm.group(1)[6:8]} {tm.group(2)[:2]}:{tm.group(2)[2:]}:00" if tm else "未知時間"
                     nt = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     self.send_email_notification(added, removed, ot, nt)
                 else: self.log("✅ 比對完成：姓名資料一致。")
             
-            # 存檔邏輯
+            # 存檔
             stamp = datetime.now().strftime('%Y%m%d_%H%M')
             new_df.to_excel(os.path.join(HISTORY_DIR, f"city_leaders_{stamp}.xlsx"), index=False)
             new_df.to_excel(MASTER_FILE, index=False)
