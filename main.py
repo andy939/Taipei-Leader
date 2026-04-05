@@ -12,15 +12,17 @@ import smtplib
 import schedule 
 from email.mime.text import MIMEText
 from email.header import Header
+
 # 💡 加入這行，強制讓 Python 腳本內的檔名生成使用台灣時區
 os.environ['TZ'] = 'Asia/Taipei'
 if hasattr(time, 'tzset'):
     time.tzset()
+
 # --- 基礎配置 (針對 GitHub Actions 修正) ---
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 # 💡 修正 1：改從 GitHub Secrets 讀取，不要寫死在程式碼中
-SENDER_EMAIL = os.environ.get("SENDER_EMAIL")       
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL")        
 SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD") 
 RECIPIENT_FILE = "收件者清單.xlsx" 
 
@@ -79,7 +81,6 @@ class TaipeiLeaderMonitor:
         except Exception as e: self.log(f"⚠️ 郵件錯誤: {str(e)}")
 
     def run_check_logic(self):
-        # --- 爬蟲邏輯維持原封不動 ---
         try:
             all_new_data = []; seen_names = {}; headers = {"User-Agent": "Mozilla/5.0"}
             garbage_list = ["市民服務", "市政公告", "市政資料", "與民互動", "助您好孕", "組織架構", "市府APP", "如何到達", "市府團隊", "市府新聞", "酒駕防制", "市政會議"]
@@ -121,25 +122,37 @@ class TaipeiLeaderMonitor:
             
             new_df = pd.DataFrame(all_new_data).drop_duplicates()
             files = glob.glob(os.path.join(HISTORY_DIR, "city_leaders_*.xlsx"))
+            
             if files:
-                old_file = max(files, key=os.path.getctime); old_df = pd.read_excel(old_file)
+                # 💡 這裡做了修正：用檔名排序找到最新的一個
+                old_file = max(files) 
+                old_df = pd.read_excel(old_file)
                 old_set = set(zip(old_df['首長姓名'], old_df['機關']))
                 new_set = set(zip(new_df['首長姓名'], new_df['機關']))
                 added, removed = new_set - old_set, old_set - new_set
+                
                 if added or removed:
-                    ot = datetime.fromtimestamp(os.path.getmtime(old_file)).strftime('%Y-%m-%d %H:%M:%S')
+                    # 💡 重點修正：從檔名提取時間，避免 GitHub Actions 檔案時間不準的問題
+                    file_name = os.path.basename(old_file)
+                    time_match = re.search(r'(\d{8})_(\d{4})', file_name)
+                    if time_match:
+                        d, t = time_match.groups()
+                        ot = f"{d[:4]}-{d[4:6]}-{d[6:8]} {t[:2]}:{t[2:]}:00"
+                    else:
+                        ot = datetime.fromtimestamp(os.path.getmtime(old_file)).strftime('%Y-%m-%d %H:%M:%S')
+                    
                     nt = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     self.send_email_notification(added, removed, ot, nt)
                 else: self.log("✅ 比對完成：姓名資料一致。")
+            
+            # 存檔邏輯
             stamp = datetime.now().strftime('%Y%m%d_%H%M')
             new_df.to_excel(os.path.join(HISTORY_DIR, f"city_leaders_{stamp}.xlsx"), index=False)
             new_df.to_excel(MASTER_FILE, index=False)
             self.log(f"📊 掃描完畢，總計取得 {len(new_df)} 筆資料。")
         except Exception as e: self.log(f"❌ 異常: {str(e)}")
 
-# --- 💡 修正 2：移除無限迴圈，跑完一次就結束 ---
 if __name__ == "__main__":
     monitor = TaipeiLeaderMonitor()
     monitor.load_recipients()
     monitor.run_check_logic()
-    # 程式執行完畢，GitHub Actions 會自動關閉電腦
