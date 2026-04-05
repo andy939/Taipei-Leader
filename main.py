@@ -87,13 +87,13 @@ class TaipeiLeaderMonitor:
                 resp = requests.get(f"{BASE_URL}&page={page}&PageSize=20", headers=headers, timeout=25, verify=False)
                 resp.encoding = 'utf-8'; soup = BeautifulSoup(resp.text, 'html.parser')
                 
-                # 💡 同步 UI 版修正：抓取 li 與 a，透過零件數隔離
+                # 💡 隔離策略：只抓 li 與 a，透過零件數限制過濾大雜燴
                 items = soup.find_all(["li", "a"]) 
                 for item in items:
                     raw_text = item.get_text(" ", strip=True).replace("收藏網頁", "").replace("My收藏", "").strip()
                     if not raw_text or any(g in raw_text for g in garbage_list): continue
                     
-                    # 💡 同步 UI 版修正 1：排除大雜燴 (解決吳俊良偏移問題)
+                    # 💡 修正點 1：排除大雜燴 (解決吳俊良偏移問題)
                     parts = [p.strip() for p in raw_text.split() if len(p.strip()) >= 2]
                     if len(parts) > 10: continue
 
@@ -109,20 +109,36 @@ class TaipeiLeaderMonitor:
                             dept = ""; dept_idx = -1
                             for idx, p in enumerate(parts):
                                 if any(k in p for k in keywords):
-                                    if p not in ["局長", "處長", "主任", "大隊長", "廠長", "主委", "區長"]:
-                                        if len(p) > len(dept): dept = p; dept_idx = idx
+                                    # 排除常見職稱關鍵字，以找出真正的機關字串
+                                    if p not in ["局長", "處長", "主任", "大隊長", "廠長", "主委", "區長", "分局長", "總隊長"]:
+                                        if len(p) > len(dept): 
+                                            dept = p
+                                            dept_idx = idx
                             
-                            # 💡 同步 UI 版修正 2：職稱回歸正常判定
+                            # 💡 修正點 2：職稱智慧判定邏輯 (自動推測與回歸真實職稱)
+                            title = ""
                             if dept_idx == 1:
-                                # 吳俊良案例：[吳俊良, 健康中心]
-                                title = "主任" if "中心" in dept else "處長" 
+                                # 吳俊良情況：沒寫職稱 -> 根據機關後綴補強
+                                if "中心" in dept: title = "主任"
+                                elif "分局" in dept: title = "分局長"
+                                elif "大隊" in dept: title = "大隊長"
+                                elif "局" in dept: title = "局長"
+                                elif "處" in dept: title = "處長"
+                                elif "公所" in dept: title = "區長"
+                                else: title = "主任"
                             elif dept_idx > 1:
                                 potential_title = parts[dept_idx-1]
-                                # 通用防錯：職稱重複或偏移時修正
+                                # 防偏移檢查：如果抓到的是名字或是重複的機關關鍵字
                                 if potential_title == name or any(k in potential_title for k in ["局", "處", "中心", "大隊"]):
-                                    title = "主任" if "中心" in dept else "處長"
+                                    if "中心" in dept: title = "主任"
+                                    elif "分局" in dept: title = "分局長"
+                                    elif "大隊" in dept: title = "大隊長"
+                                    elif "局" in dept: title = "局長"
+                                    elif "處" in dept: title = "處長"
+                                    elif "公所" in dept: title = "區長"
+                                    else: title = "主任"
                                 else:
-                                    title = potential_title
+                                    title = potential_title # 保留原始「分局長」、「局長」等
                             else:
                                 title = "主任"
 
@@ -145,7 +161,7 @@ class TaipeiLeaderMonitor:
                 added, removed = new_set - old_set, old_set - new_set
                 
                 if added or removed:
-                    # 💡 重點：從檔名提取時間
+                    # 從舊檔案檔名提取時間
                     file_name = os.path.basename(old_file)
                     tm = re.search(r'(\d{8})_(\d{4})', file_name)
                     ot = f"{tm.group(1)[:4]}-{tm.group(1)[4:6]}-{tm.group(1)[6:8]} {tm.group(2)[:2]}:{tm.group(2)[2:]}:00" if tm else "未知時間"
@@ -153,7 +169,7 @@ class TaipeiLeaderMonitor:
                     self.send_email_notification(added, removed, ot, nt)
                 else: self.log("✅ 比對完成：姓名資料一致。")
             
-            # 存檔
+            # 存檔邏輯
             stamp = datetime.now().strftime('%Y%m%d_%H%M')
             new_df.to_excel(os.path.join(HISTORY_DIR, f"city_leaders_{stamp}.xlsx"), index=False)
             new_df.to_excel(MASTER_FILE, index=False)
