@@ -49,13 +49,14 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name  "github-actions[bot]"
 
-          # 先 stage，再用 --cached 判斷（新檔案＋修改都能偵測到）
-          git add city_leaders_latest.xlsx 2>/dev/null || true
+          # 先 stage 所有帶日期時間的首長 Excel（新增或修改都能偵測到）
+          git add city_leaders_????????_??????.xlsx 2>/dev/null || true
 
           if git diff --cached --quiet; then
             echo "首長資料無異動，不需 commit"
           else
-            git commit -m "首長資料更新：$(date '+%Y-%m-%d %H:%M') (台灣時間)"
+            FNAME=$(git diff --cached --name-only | grep city_leaders)
+            git commit -m "首長資料更新：$(date '+%Y-%m-%d %H:%M') (台灣時間) → ${FNAME}"
             git push origin main
-            echo "已推送更新至 GitHub"
+            echo "已推送更新至 GitHub：${FNAME}"
           fi
