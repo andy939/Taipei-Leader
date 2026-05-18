@@ -12,6 +12,9 @@ on:
   # 允許手動在 GitHub Actions 頁面觸發
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   monitor:
     runs-on: ubuntu-latest
