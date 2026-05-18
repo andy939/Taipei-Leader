@@ -2,13 +2,12 @@
 """
 臺北市政府機關首長異動監控 (GitHub Actions 版)
 - 抓取首長資料（div.figure 精準解析，PageSize=200 一次取完）
-- 與 repo 內的 city_leaders_latest.xlsx 比對
-- 有異動才產生新 Excel 並寄 HTML 通知信給收件者清單所有人
+- 與 repo 內最新的 city_leaders_YYYYMMDD_HHMMSS.xlsx 比對
+- 有異動才產生新的帶日期時間 Excel 並寄 HTML 通知信
 - 無異動：靜默結束，不寫檔、不 commit
 """
 
 import os
-import sys
 import glob
 import smtplib
 import warnings
@@ -32,14 +31,12 @@ URL_PARAMS = {
     "PageSize": "200",
 }
 
-# SMTP（從 GitHub Secrets 讀取；本機測試時可設環境變數）
-SMTP_SERVER   = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
-SMTP_PORT     = int(os.environ.get("SMTP_PORT", "587"))
-SENDER_EMAIL  = os.environ.get("SENDER_EMAIL", "")
+SMTP_SERVER     = os.environ.get("SMTP_SERVER",     "smtp.gmail.com")
+SMTP_PORT       = int(os.environ.get("SMTP_PORT",   "587"))
+SENDER_EMAIL    = os.environ.get("SENDER_EMAIL",    "")
 SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD", "")
 
-# 檔案路徑（相對於 repo 根目錄，供 GitHub Actions 使用）
-LATEST_FILE    = "city_leaders_latest.xlsx"   # repo 內唯一的完整名單
+FILE_PREFIX    = "city_leaders_"   # 檔名前綴，後接 YYYYMMDD_HHMMSS.xlsx
 RECIPIENT_FILE = "收件者清單.xlsx"
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -48,14 +45,19 @@ def log(msg: str):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
+def latest_file() -> "str | None":
+    """找 repo 內最新的 city_leaders_*.xlsx，沒有則回傳 None"""
+    files = sorted(glob.glob(f"{FILE_PREFIX}????????_??????.xlsx"))
+    return files[-1] if files else None
+
+
+def new_filename() -> str:
+    """產生帶當前日期時間的檔名，例如 city_leaders_20260518_093012.xlsx"""
+    return f"{FILE_PREFIX}{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+
+
 # ── 1. 抓取首長資料 ───────────────────────────────────────────────────────────
 def fetch_leaders() -> pd.DataFrame:
-    """
-    解析 div.figure > div.essay 結構：
-      p > a  → 姓名
-      span[0] → 職稱
-      span[1] → 機關
-    """
     log("開始抓取首長資料...")
     headers = {
         "User-Agent": (
@@ -64,10 +66,8 @@ def fetch_leaders() -> pd.DataFrame:
             "Chrome/124.0.0.0 Safari/537.36"
         )
     }
-    resp = requests.get(
-        URL_BASE, params=URL_PARAMS, headers=headers,
-        timeout=30, verify=False
-    )
+    resp = requests.get(URL_BASE, params=URL_PARAMS, headers=headers,
+                        timeout=30, verify=False)
     resp.encoding = "utf-8"
     soup = BeautifulSoup(resp.text, "html.parser")
 
@@ -121,12 +121,12 @@ def compare(old_df: pd.DataFrame, new_df: pd.DataFrame):
 
     old_d = {r["機關"]: r for _, r in old_df.iterrows()}
     new_d = {r["機關"]: r for _, r in new_df.iterrows()}
-    chg   = []
+    chg = []
     for org in set(old_d) & set(new_d):
         o, n = old_d[org], new_d[org]
         if o["職稱"] != n["職稱"] or o["姓名"] != n["姓名"]:
             chg.append({
-                "機關": org,
+                "機關":   org,
                 "舊職稱": o["職稱"], "新職稱": n["職稱"],
                 "舊姓名": o["姓名"], "新姓名": n["姓名"],
             })
@@ -202,8 +202,8 @@ def build_html(now_str, added, removed, changed, excel_name):
                make_bullets(changed, "chg", "#E67E00"))
     summary = '<ul style="line-height:1.9;margin:8px 0;">' + bullets + "</ul>"
 
-    sec_add = make_section("▲ 新增首長",     "#1a7f37", "#e6f4ea", added,   S_RADD)
-    sec_del = make_section("▼ 移除首長",     "#c0392b", "#fce8e6", removed, S_RDEL)
+    sec_add = make_section("▲ 新增首長",      "#1a7f37", "#e6f4ea", added,   S_RADD)
+    sec_del = make_section("▼ 移除首長",      "#c0392b", "#fce8e6", removed, S_RDEL)
     sec_chg = make_section("◆ 職稱／姓名異動", "#E67E00", "#fff8e6", changed, "",
                            old_cols=["舊職稱", "舊姓名"], new_cols=["新職稱", "新姓名"])
 
@@ -236,8 +236,8 @@ def send_mail(recipients, now_str, added, removed, changed, excel_path):
         log("⚠ 未設定 SENDER_EMAIL / SENDER_PASSWORD，跳過寄信")
         return
 
-    subject  = (f"【首長異動通知】{now_str}"
-                f"（新增{len(added)}/移除{len(removed)}/異動{len(changed)}筆）")
+    subject   = (f"【首長異動通知】{now_str}"
+                 f"（新增{len(added)}/移除{len(removed)}/異動{len(changed)}筆）")
     html_body = build_html(now_str, added, removed, changed,
                            os.path.basename(excel_path))
 
@@ -250,7 +250,6 @@ def send_mail(recipients, now_str, added, removed, changed, excel_path):
     msg_alt.attach(MIMEText(html_body, "html", "utf-8"))
     msg_outer.attach(msg_alt)
 
-    # 附件：最新完整 Excel
     fname = os.path.basename(excel_path)
     with open(excel_path, "rb") as f:
         part = MIMEBase("application",
@@ -279,36 +278,38 @@ def main():
     new_df     = fetch_leaders()
     recipients = load_recipients()
     now_str    = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    prev_file  = latest_file()
 
     # ── 第一次執行（repo 內尚無 Excel）─────────────────────────────────────
-    if not os.path.exists(LATEST_FILE):
-        log("首次執行，建立初始首長名單")
-        save_excel(new_df, LATEST_FILE)
+    if prev_file is None:
+        out = new_filename()
+        log(f"首次執行，建立初始首長名單：{out}")
+        save_excel(new_df, out)
         log("初始名單已建立，本次不寄信")
         return
 
     # ── 後續執行：比對 ──────────────────────────────────────────────────────
-    log(f"比對 {LATEST_FILE} ...")
-    old_df = pd.read_excel(LATEST_FILE, sheet_name="首長名單", dtype=str).fillna("")
+    log(f"比對基準：{prev_file}")
+    old_df     = pd.read_excel(prev_file, sheet_name="首長名單", dtype=str).fillna("")
     new_df_str = new_df.astype(str).fillna("")
 
     added, removed, changed = compare(old_df, new_df_str)
 
     if added.empty and removed.empty and changed.empty:
         log("比對完成：資料無異動")
-        # 不寫檔、不 commit，讓 cron_monitor.yml 的 git diff 偵測到無變更
         return
 
-    # ── 有異動：更新 Excel + 寄信 ─────────────────────────────────────────
+    # ── 有異動：產生新 Excel（帶日期時間）+ 寄信 ───────────────────────────
     log(f"偵測到異動 → 新增 {len(added)} / 移除 {len(removed)} / 異動 {len(changed)} 筆")
-    save_excel(new_df, LATEST_FILE)   # 覆蓋更新，保持 repo 只有一個最新檔
+    out = new_filename()
+    save_excel(new_df, out)
 
     try:
-        send_mail(recipients, now_str, added, removed, changed, LATEST_FILE)
+        send_mail(recipients, now_str, added, removed, changed, out)
     except Exception as e:
         log(f"⚠ 寄信失敗：{e}")
 
-    log("完成")
+    log(f"完成！新檔案：{out}")
 
 
 if __name__ == "__main__":
