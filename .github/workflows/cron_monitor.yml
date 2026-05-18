@@ -1,69 +1,58 @@
-name: Taipei Leader Monitor Cron
+name: Taipei Leader Monitor
 
 on:
   schedule:
+    # UTC 01:30 = 台灣時間 09:30，每天執行一次
     - cron: '30 1 * * *'
-    #從左到右分別代表：'分鐘 小時 日期 月份 星期'
+    # 其他可用排程（取消註解即可啟用）：
+    # - cron: '0 0 * * *'    # 每天 UTC 00:00 = 台灣 08:00
+    # - cron: '30 1 * * 1-5' # 週一~五 台灣 09:30
+    # - cron: '0 */6 * * *'  # 每 6 小時
 
-#  0 * * * * #每小時 (整點)
-#  */30 * * * * #每30分鐘
-#  0 */2 * * *#每 2 小時
-#  0 */6 * * *#每 6 小時
-#  30 */2 * * *#每 2 小時的30分非整點
-#  0 0 * * *#每天凌晨 (UTC 00:00 = 台灣 08:00)
-# 30 1 * * *#每天凌晨 (UTC 01:30 = 台灣 09:30)
+  # 允許手動在 GitHub Actions 頁面觸發
   workflow_dispatch:
 
 jobs:
-  build:
+  monitor:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: Checkout repo
+        uses: actions/checkout@v4
         with:
-          # 💡 確保拉取所有歷史紀錄，避免 push 被拒絕
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.11'
 
       - name: Install dependencies
         run: |
-          pip install requests beautifulsoup4 pandas openpyxl schedule
+          pip install --quiet requests beautifulsoup4 pandas openpyxl
 
-      - name: Run Monitor Task
+      - name: Run monitor
         env:
-          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+          SMTP_SERVER:    smtp.gmail.com
+          SMTP_PORT:      "587"
+          SENDER_EMAIL:    ${{ secrets.SENDER_EMAIL }}
           SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
+          TZ: Asia/Taipei
         run: python main.py
 
-      - name: Commit and Push changes
+      - name: Commit updated Excel (only when changed)
         env:
           TZ: Asia/Taipei
         run: |
-         git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          
-          # 💡 1. 強制從網頁拉取最新狀態，但不進行合併 (避免衝突)
-          git fetch origin main
-          git checkout main
-          
-          # 💡 2. 確保資料夾存在
-          mkdir -p history_records
-          
-          # 💡 3. 把新產生的檔案蓋過去
-          git add city_leaders_complete.xlsx history_records/
-          
-          # 💡 4. Commit 檔案
-          git commit -m "自動更新：異動紀錄 [$(date '+%Y-%m-%d %H:%M')]" || echo "無資料異動需存檔"
-          
-          # 💡 5. 強力推回網頁端，解決 [rejected] 錯誤
-          git push origin main --force
-          # 💡 4. 關鍵：先拉取最新狀態並強制合併，解決 rejected 錯誤
-          git pull --rebase origin main
-          
-          # 💡 5. 強力推上去，確保首頁 Code 會更新
-          git push origin main --force
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name  "github-actions[bot]"
+
+          # 只有 city_leaders_latest.xlsx 真的被修改才 commit
+          if git diff --quiet city_leaders_latest.xlsx; then
+            echo "首長資料無異動，不需 commit"
+          else
+            git add city_leaders_latest.xlsx
+            git commit -m "首長資料更新：$(date '+%Y-%m-%d %H:%M') (台灣時間)"
+            git push origin main
+            echo "已推送更新至 GitHub"
+          fi
