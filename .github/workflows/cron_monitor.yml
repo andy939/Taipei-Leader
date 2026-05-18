@@ -31,13 +31,12 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: |
-          pip install --quiet requests beautifulsoup4 pandas openpyxl
+        run: pip install -r requirements.txt
 
       - name: Run monitor
         env:
-          SMTP_SERVER:    smtp.gmail.com
-          SMTP_PORT:      "587"
+          SMTP_SERVER:     smtp.gmail.com
+          SMTP_PORT:       "587"
           SENDER_EMAIL:    ${{ secrets.SENDER_EMAIL }}
           SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
           TZ: Asia/Taipei
@@ -50,11 +49,12 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name  "github-actions[bot]"
 
-          # 只有 city_leaders_latest.xlsx 真的被修改才 commit
-          if git diff --quiet city_leaders_latest.xlsx; then
+          # 先 stage，再用 --cached 判斷（新檔案＋修改都能偵測到）
+          git add city_leaders_latest.xlsx 2>/dev/null || true
+
+          if git diff --cached --quiet; then
             echo "首長資料無異動，不需 commit"
           else
-            git add city_leaders_latest.xlsx
             git commit -m "首長資料更新：$(date '+%Y-%m-%d %H:%M') (台灣時間)"
             git push origin main
             echo "已推送更新至 GitHub"
